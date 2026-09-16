@@ -151,6 +151,18 @@ section{position:relative}
 .prog i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--red),var(--pop))}
 .sbtn{font-family:var(--mono);font-weight:700;font-size:12px;background:var(--ink2);border:1px solid #5a463a;border-radius:8px;padding:6px 11px;color:var(--cream)}
 .sbtn:disabled{opacity:.4;cursor:default}
+.sbtn.main{background:var(--pop);color:var(--ink);border-color:#d9a91e;min-width:92px}
+.bigplay{position:absolute;inset:14px;z-index:5;display:grid;place-items:center;pointer-events:none;transition:opacity .25s}
+.frame.play:not(.paused) .bigplay{opacity:0;visibility:hidden;transition:opacity .25s,visibility 0s .25s}
+.frame.play:not(.paused) .bigplay button{pointer-events:none}
+.bigplay button{max-width:94%;pointer-events:auto;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:12px;padding:10px;color:var(--cream)}
+.bigplay .ring{width:clamp(64px,9vw,104px);height:clamp(64px,9vw,104px);border-radius:50%;background:var(--red);display:grid;place-items:center;box-shadow:0 6px 0 #8f2413,0 0 0 10px rgba(229,72,47,.2),0 20px 40px rgba(0,0,0,.5);animation:glow2 1.8s infinite;transition:transform .15s}
+.bigplay button:hover .ring{transform:scale(1.06)}
+.bigplay .ring::before{content:"";margin-left:8%;border-style:solid;border-width:clamp(14px,1.9vw,22px) 0 clamp(14px,1.9vw,22px) clamp(22px,3vw,36px);border-color:transparent transparent transparent #fff}
+.bigplay .lb{font-family:var(--display);font-weight:700;font-size:clamp(15px,1.6vw,20px);background:rgba(15,10,8,.78);padding:6px 16px;border-radius:999px;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.bigplay .lb small{font-family:var(--mono);font-weight:500;font-size:.72em;color:var(--pop);margin-left:6px}
+@keyframes glow2{50%{box-shadow:0 6px 0 #8f2413,0 0 0 18px rgba(229,72,47,.08),0 20px 40px rgba(0,0,0,.5)}}
+.frame canvas{cursor:pointer}
 .posters{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:12px;margin-top:26px}
 .poster{position:relative;border:0;padding:0;border-radius:8px;aspect-ratio:2/3;overflow:hidden;background:linear-gradient(160deg,var(--a),var(--b));box-shadow:0 0 0 2px #2a1d12,0 10px 20px rgba(0,0,0,.45);text-align:left;transition:box-shadow .2s,filter .2s}
 .poster:hover,.poster.cur{box-shadow:0 0 0 3px var(--pop),0 10px 30px rgba(255,207,74,.28)}
@@ -410,9 +422,11 @@ footer{padding:80px 0 50px;background:#0d0a09;text-align:center}
         <div class="frame closed" id="frame">
           <canvas id="cv" width="960" height="540" aria-label="the moviebook screen"></canvas>
           <div class="curtain l"></div><div class="curtain r"></div>
+          <div class="bigplay"><button type="button" id="bigPlay" aria-label="play the film"><span class="ring"></span><span class="lb" id="bigLb">play</span></button></div>
         </div>
         <div class="nowbar">
-          <div class="t" id="nowT">the screen is dark. <b>pick a poster below.</b></div>
+          <div class="t" id="nowT">the screen is dark. <b>press play</b> or pick a poster.</div>
+          <button class="sbtn main" id="playB" type="button">▶ play</button>
           <button class="sbtn" id="stopB" type="button" disabled>■ stop</button>
           <button class="sbtn" id="nextB" type="button">next ▸</button>
         </div>
@@ -740,7 +754,7 @@ var frame=$("#frame");
 var imgBase=new Image(), imgStick=new Image();
 imgBase.src="assets/cut-base.webp"; imgStick.src="assets/cut-stick.webp";
 var LEADER=2.4, TITLE=2.8, SCN=3.6, END=2.8;
-var play=null, seen={}, visible=true, lastTick=0;
+var play=null, seen={}, visible=true, lastTick=0, sel=0;
 
 /* grain texture */
 var gcv=document.createElement("canvas"); gcv.width=gcv.height=256;
@@ -960,7 +974,7 @@ function idle(T){
   var g=ctx.createRadialGradient(W/2,H/2,20,W/2,H/2,420); g.addColorStop(0,"rgba(255,236,190,.14)"); g.addColorStop(1,"rgba(255,236,190,0)"); ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
   for(var i=0;i<40;i++){ var x=(i*97+Math.sin(T*.3+i)*40)%W, y=(i*53+T*(6+i%5))%H; ctx.fillStyle="rgba(255,240,210,"+(.1+(i%4)*.06)+")"; ell(x,y,1.5,1.5); ctx.fill(); }
   txt("moviebook",W/2,230,"700 64px DynaPuff, sans-serif","#fbeedb");
-  txt("pick a poster. the lights go down.",W/2,300,"600 24px Figtree, sans-serif","#b9a58c");
+  txt("press play, or pick a poster below.",W/2,300,"600 24px Figtree, sans-serif","#b9a58c");
   txt("● "+Object.keys(seen).length+"/8 seen",W/2,350,"700 16px 'Victor Mono', monospace","#ffcf4a");
 }
 function fx(T,strong){
@@ -975,9 +989,10 @@ var TOTAL=LEADER+TITLE+SCN*3+END;
 function render(now){
   var T=now/1000;
   if(!play){ idle(T); fx(T); return; }
+  if(play.paused) T=play.pt;
   var f=FILMS[play.i], t=T-play.t0;
   ctx.save();
-  if(t>LEADER) ctx.translate((Math.random()-.5)*1.6,(Math.random()-.5)*1.6);
+  if(t>LEADER&&!play.paused) ctx.translate((Math.random()-.5)*1.6,(Math.random()-.5)*1.6);
   if(t<LEADER){ leader(t); var nn=Math.floor(t/.8); if(nn!==play.lb){ play.lb=nn; beep(nn===2?1320:880); } }
   else if(t<LEADER+TITLE){ titleCard(f,t-LEADER); if(!play.sting){ play.sting=true; sting(); } }
   else if(t<LEADER+TITLE+SCN*3){
@@ -989,8 +1004,9 @@ function render(now){
   else { ctx.restore(); stopFilm(true); render(now); return; }
   ctx.restore();
   fx(T,true);
+  if(play.paused){ ctx.fillStyle="rgba(0,0,0,.35)"; ctx.fillRect(0,0,W,H); txt("❚❚  PAUSED",34,36,"700 18px 'Victor Mono', monospace","#ffcf4a","left"); }
   $("#progI").style.width=Math.min(100,t/TOTAL*100)+"%";
-  if(sfxOn && now-lastTick>85 && t>LEADER){ lastTick=now; tick(); }
+  if(!play.paused && sfxOn && now-lastTick>85 && t>LEADER){ lastTick=now; tick(); }
 }
 function sting(){ if(!sfxOn||!ac()) return; var t=AC.currentTime; [60,64,67,72].forEach(function(m,i){ pn(m,t+i*.07,.9,.05,3000); }); }
 function loop(now){ if(visible) render(now); requestAnimationFrame(loop); }
@@ -1010,23 +1026,63 @@ FILMS.forEach(function(f,i){
 });
 function startFilm(i){
   ac();
+  sel=i;
   play={i:i,t0:performance.now()/1000,lb:-1};
-  frame.classList.remove("closed"); frame.classList.add("play");
+  frame.classList.remove("closed","paused"); frame.classList.add("play");
   document.querySelectorAll(".poster").forEach(function(p,k){ p.classList.toggle("cur",k===i); });
   var f=FILMS[i];
   $("#nowT").innerHTML="now playing: <b>"+f.t+"</b> · dir. "+f.d;
   $("#stopB").disabled=false;
+  playUI();
   noise(.25,600,.7,.2);
   if(window.innerWidth<1000){ var r=frame.getBoundingClientRect(); if(r.top<60||r.bottom>innerHeight) window.scrollTo({top:scrollY+r.top-80,behavior:"smooth"}); }
 }
 function stopFilm(ended){
   var was=play; play=null;
-  frame.classList.remove("play"); frame.classList.add("closed");
+  frame.classList.remove("play","paused"); frame.classList.add("closed");
+  if(ended&&was) sel=nextUnseen(was.i+1);
   document.querySelectorAll(".poster").forEach(function(p){ p.classList.remove("cur"); });
   $("#stopB").disabled=true; $("#progI").style.width="0";
-  $("#nowT").innerHTML=ended&&was?"that was <b>"+FILMS[was.i].t+"</b>. next one? press <b>next ▸</b>":"the screen is dark. <b>pick a poster below.</b>";
+  $("#nowT").innerHTML=ended&&was?"that was <b>"+FILMS[was.i].t+"</b>. up next: <b>"+FILMS[sel].t+"</b>, press play":"the screen is dark. <b>press play</b> or pick a poster.";
+  playUI();
   setTimeout(function(){ if(!play) frame.classList.remove("closed"); },1400);
 }
+function nextUnseen(start){
+  var k;
+  for(var j=0;j<8;j++){ k=(start+j)%8; if(!seen[k]) return k; }
+  return start%8;
+}
+function pauseFilm(){
+  if(!play||play.paused) return;
+  play.paused=true; play.pt=performance.now()/1000;
+  frame.classList.add("paused"); tone(500,300,.1,"sine",.05); playUI();
+}
+function resumeFilm(){
+  if(!play||!play.paused) return;
+  play.t0+=performance.now()/1000-play.pt; play.paused=false;
+  frame.classList.remove("paused"); tone(300,500,.1,"sine",.05); playUI();
+}
+function togglePlay(){
+  if(!play) startFilm(sel);
+  else if(play.paused) resumeFilm();
+  else pauseFilm();
+}
+function playUI(){
+  var b=$("#playB"), lb=$("#bigLb");
+  if(!play){ b.textContent="▶ play"; lb.innerHTML="play <small>"+FILMS[sel].t+"</small>"; }
+  else if(play.paused){ b.textContent="▶ play"; lb.innerHTML="resume <small>"+FILMS[play.i].t+"</small>"; $("#nowT").innerHTML="paused: <b>"+FILMS[play.i].t+"</b> · dir. "+FILMS[play.i].d; }
+  else { b.textContent="❚❚ pause"; $("#nowT").innerHTML="now playing: <b>"+FILMS[play.i].t+"</b> · dir. "+FILMS[play.i].d; }
+  document.querySelectorAll(".poster").forEach(function(p,k){ p.classList.toggle("cur",play?k===play.i:k===sel); });
+}
+$("#playB").addEventListener("click",togglePlay);
+$("#bigPlay").addEventListener("click",togglePlay);
+cv.addEventListener("click",function(){ if(play) togglePlay(); else startFilm(sel); });
+document.addEventListener("keydown",function(e){
+  if(e.key!==" "&&e.key!=="k") return;
+  var r=frame.getBoundingClientRect();
+  if(r.bottom<0||r.top>innerHeight||/INPUT|TEXTAREA|BUTTON/.test((e.target||{}).tagName||"")) return;
+  e.preventDefault(); togglePlay();
+});
 function finish(i){
   if(seen[i]) return; seen[i]=true;
   var n=Object.keys(seen).length;
@@ -1038,10 +1094,7 @@ function finish(i){
 }
 $("#stopB").addEventListener("click",function(){ stopFilm(false); });
 $("#nextB").addEventListener("click",function(){
-  var start=play?play.i+1:0, k;
-  for(var j=0;j<8;j++){ k=(start+j)%8; if(!seen[k]) break; }
-  if(seen[k]) k=start%8;
-  startFilm(k);
+  startFilm(play?nextUnseen(play.i+1):(sel!=null?sel:nextUnseen(0)));
 });
 $("#prizeX").addEventListener("click",function(){ $("#prize").classList.remove("on"); });
 $("#prize").addEventListener("click",function(e){ if(e.target===this) this.classList.remove("on"); });
@@ -1147,7 +1200,8 @@ function fitPosters(){
 function fitAll(){ fitWord(); fitPosters(); }
 fitAll(); window.addEventListener("resize",fitAll);
 if(document.fonts&&document.fonts.ready) document.fonts.ready.then(fitAll);
-window.__mb={start:startFilm,seek:function(t){ if(play) play.t0=performance.now()/1000-t; }};
+playUI();
+window.__mb={pause:pauseFilm,resume:resumeFilm,start:startFilm,seek:function(t){ if(play) play.t0=performance.now()/1000-t; }};
 })();
 </script>
 </body>
